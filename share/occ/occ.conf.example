@@ -1,0 +1,23 @@
+# ~/.config/occ/occ.conf — occ launch configuration
+# KEY=VALUE per line, '#' comments. Keys are whitelisted by prefix:
+#   OCC_*        occ's own knobs
+#   OTEL_*       OpenTelemetry (forwarded to claude + used for launch spans)
+#   CLAUDE_*, ANTHROPIC_*, OLLAMA_*   passed through to the launched session
+# Explicitly-set env vars ALWAYS win over this file (even set-but-empty).
+
+# --- telemetry (uncomment to enable) ---
+# CLAUDE telemetry on, occ emits one OTLP span per launch:
+# OCC_OTEL=1
+# OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+
+# --- default model (same as OCC_MODEL env) ---
+# OCC_MODEL=nano
+
+# --- orchestrator session model (same as OCC_ORCH_MODEL env) ---
+# OCC_ORCH_MODEL=ultra
+
+# --- future: tapes session capture (https://tapes.dev/guides/claudecode/) ---
+# Route claude sessions through the tapes proxy:
+# ANTHROPIC_BASE_URL=http://localhost:8080
+# Route ollama itself through a proxy (if tapes fronts ollama on :8080):
+# OLLAMA_HOST=http://localhost:8080

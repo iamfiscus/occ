@@ -7,7 +7,7 @@ export const meta = {
   ],
 }
 
-// args: { tasks: ["..."], quota: "normal"|"low", execute: boolean, otel: boolean }
+// args: { tasks: ["..."], quota: "normal"|"low", execute: boolean }
 // Model roster is fetched live by each assess agent via `occ --emit md` —
 // models.tsv is the single source of truth, nothing is hardcoded here.
 
@@ -66,9 +66,8 @@ const staffed = await parallel(routed.map(r => () =>
   agent(
     `Launch the routed worker for this assignment and return its result.
 
-Run in Bash (capture all output):${args?.otel ? `
-  occ otel ${r.code} --append-system-prompt-file ${'"'}$HOME/dev/occ/prompts/worker.md${'"'} -p "$(cat <<'BRIEF'\n${r.brief}\nBRIEF\n)"` : `
-  occ ${r.code} --append-system-prompt-file ${'"'}$HOME/dev/occ/prompts/worker.md${'"'} -p "$(cat <<'BRIEF'\n${r.brief}\nBRIEF\n)"`}
+Run in Bash (capture all output):
+  occ ${r.code} --append-system-prompt-file ${'"'}$HOME/dev/occ/prompts/worker.md${'"'} -p "$(cat <<'BRIEF'\n${r.brief}\nBRIEF\n)"
 
 Rules:
 - The occ call can take MINUTES — it is a full claude session on another

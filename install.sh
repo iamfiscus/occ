@@ -73,7 +73,8 @@ else
   echo "==> src   standalone: downloading into $SHARE_DIR"
   rm -rf "$SHARE_DIR"
   mkdir -p "$SHARE_DIR/bin" "$SHARE_DIR/share/occ" "$SHARE_DIR/completions" "$SHARE_DIR/orchestrator"
-  for f in bin/occ bin/occ-route share/occ/models.tsv completions/_occ orchestrator/SKILL.md; do
+  for f in bin/occ bin/occ-route share/occ/models.tsv share/occ/occ.conf.example \
+           completions/_occ orchestrator/SKILL.md; do
     curl -fsSL "$RAW_BASE/$f" -o "$SHARE_DIR/$f"
   done
   chmod +x "$SHARE_DIR/bin/occ" "$SHARE_DIR/bin/occ-route"
@@ -116,13 +117,23 @@ else
   [ -f "$ZSHRC" ] && echo "==> zshrc managed block already present (skipped)"
 fi
 
-# --- 5. Claude Code router skill (optional) ---------------------------------
+# --- 5. example config (never overwrite a user's existing conf) -------------
+CONF_DIR="$HOME/.config/occ"
+if [ ! -f "$CONF_DIR/occ.conf" ]; then
+  mkdir -p "$CONF_DIR"
+  cp "$SRC_DIR/share/occ/occ.conf.example" "$CONF_DIR/occ.conf"
+  echo "==> conf  $CONF_DIR/occ.conf (from example; all lines commented-off)"
+else
+  echo "==> conf  $CONF_DIR/occ.conf exists (skipped)"
+fi
+
+# --- 6. Claude Code router skill (optional) ---------------------------------
 if [ -d "$HOME/.claude/skills" ] && [ ! -e "$HOME/.claude/skills/occ-route" ]; then
   ln -s "$SRC_DIR/orchestrator" "$HOME/.claude/skills/occ-route"
   echo "==> skill ~/.claude/skills/occ-route -> $SRC_DIR/orchestrator"
 fi
 
-# --- 6. verify ---------------------------------------------------------------
+# --- 7. verify ---------------------------------------------------------------
 "$BIN_DIR/occ" --version
 "$BIN_DIR/occ" --check >/dev/null && echo "==> check models.tsv OK"
 

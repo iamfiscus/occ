@@ -125,12 +125,15 @@ usage: occ                       interactive, default model (glm)
        occ route <task>          advisory router — pick a code for a task
        occ orch <tasks>          route-and-staff orchestrator session
                                  (OCC_ORCH_MODEL to drive it, default glm)
-       occ otel [model] [args]   any occ launch WITH OpenTelemetry on:
-                                 CLAUDE telemetry enabled, OTEL_* env
-                                 forwarded, one span per launch emitted
-                                 (endpoint: OCC_OTEL_ENDPOINT or
-                                  OTEL_EXPORTER_OTLP_ENDPOINT, HTTP/4318)
        occ --check | --emit md | --version
+
+config: ~/.config/occ/occ.conf — KEY=VALUE, merged into the launch env
+(OCC|OTEL|CLAUDE|ANTHROPIC|OLLAMA prefixes; explicit env always wins):
+  OCC_OTEL=1                       telemetry on: claude telemetry +
+                                   one OTLP launch-span per occ run
+  OTEL_EXPORTER_OTLP_ENDPOINT=...  span/metric destination (HTTP :4318)
+  OCC_MODEL=nano                   override default model
+  ANTHROPIC_BASE_URL=...           future: proxy capture (e.g. tapes :8080)
 
 occ's help vs claude's help:
   occ help / -h / --help   occ (this text)
@@ -216,8 +219,7 @@ _occ_complete_dump() {   # feeds completions/_occ: "code:description" lines + lo
     printf "%s:%s\n", $1, $10
     n=split($2,a,","); for (i=1;i<=n;i++) if (a[i]!="-") printf "%s:alias for %s\n", a[i], $1 }' "$(_occ_tsv)"
   _occ_locals | sed 's/$/:installed local/' 2>/dev/null
-  print -l -- 'orch:route-and-staff orchestrator' 'route:advisory router' \
-    'otel:launch with OpenTelemetry' 'help:show help'
+  print -l -- 'orch:route-and-staff orchestrator' 'route:advisory router' 'help:show help'
 }
 
 # --------------------------------------------------------------- otel span --
@@ -247,11 +249,43 @@ _occ_emit_span() {  # $1=model $2=start_epoch_s $3=exit_code
   return 0
 }
 
+# --------------------------------------------------------------- occ.conf --
+# ~/.config/occ/occ.conf — KEY=VALUE lines, # comments, no eval, no sourcing.
+# Whitelisted prefixes cover telemetry (OTEL_*), launches (OCC_*), and
+# proxy/capture targets (CLAUDE_*, ANTHROPIC_*, OLLAMA_*) so future wrappers
+# (e.g. tapes session recording) are config-only, never new subcommands.
+# Explicit env vars ALWAYS win over file values.
+
+_occ_conf() {
+  local _f="${OCC_CONFIG:-$HOME/.config/occ/occ.conf}"
+  [[ -r "$_f" ]] || return 0
+  local line key val
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"
+    [[ -n "$line" ]] || continue
+    [[ "$line" =~ '^((OCC|OTEL|CLAUDE|ANTHROPIC|OLLAMA)_[A-Z0-9_]*)=(.*)$' ]] || continue
+    key="${match[1]}"; val="${match[3]}"
+    val="${val#\"}"; val="${val%\"}"
+    (( ${+parameters[$key]} )) && continue            # set — even empty — wins
+    typeset -g "$key"="$val"
+  done < "$_f"
+}
+
 # ----------------------------------------------------------------- dispatch --
 _occ_load || exit 1
 
 local model
 local _with_otel=0
+
+_occ_conf
+case "${OCC_OTEL:-}" in
+  1|true|yes|on)
+    _with_otel=1
+    export CLAUDE_CODE_ENABLE_TELEMETRY=1
+    [[ -z "${OTEL_SERVICE_NAME:-}" ]] && export OTEL_SERVICE_NAME="occ"
+    [[ -n "${OCC_OTEL_ENDPOINT:-}" && -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]] \
+      && export OTEL_EXPORTER_OTLP_ENDPOINT="$OCC_OTEL_ENDPOINT" ;;
+esac
 if (( $# == 0 )); then
   model="$(_occ_default)"                                  # bare occ
 else
@@ -289,26 +323,6 @@ else
       print -u2 "occ: '$1' is a reserved subcommand — not yet implemented."
       print -u2 "     (local model named '$1'? use its full tag: occ $1:latest)"
       exit 2 ;;
-    otel)                                              # telemetry modifier
-      _with_otel=1
-      shift
-      export CLAUDE_CODE_ENABLE_TELEMETRY=1
-      [[ -z "${OTEL_SERVICE_NAME:-}" ]] && export OTEL_SERVICE_NAME="occ"
-      [[ -n "${OCC_OTEL_ENDPOINT:-}" && -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]] \
-        && export OTEL_EXPORTER_OTLP_ENDPOINT="$OCC_OTEL_ENDPOINT"
-      export OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES:+$OTEL_RESOURCE_ATTRIBUTES,}occ.modifier=otel"
-      # re-dispatch the remaining slot (same three cases as the main dispatch
-      # below; kept explicit because zsh has no way to re-enter a case arm)
-      case "${1:-}" in
-        --) shift; model="$(_occ_default)" ;;
-        -*|"") model="$(_occ_default)" ;;                       # dash-first / bare
-        *)  if (( $+_occ_canon[$1] )); then
-              model="$_occ_tag[$_occ_canon[$1]]"
-            else
-              model="$(_occ_resolve "$1")" || exit 1
-            fi
-            shift ;;
-      esac ;;
     --)  shift; model="$(_occ_default)" ;;                  # explicit separator
     -*)  model="$(_occ_default)" ;;                         # dash-first = claude's; NO shift
     *)

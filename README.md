@@ -26,11 +26,22 @@ $ occ route "fix layout bug from this screenshot"   # advisory router
 | `occ ds --help` | claude's help (flag lands after the model slot) |
 | `occ route <task>` | advisory router — prints a suggestion, never execs |
 | `occ orch <tasks>` | route-and-staff orchestrator session (`OCC_ORCH_MODEL` drives it) |
-| `occ otel [model] [args]` | any launch **with OpenTelemetry**: claude telemetry on, `OTEL_*` forwarded, one OTLP span per launch (endpoint: `OCC_OTEL_ENDPOINT` / `OTEL_EXPORTER_OTLP_ENDPOINT`) |
 | `occ --check / --emit md / --version` | validator / routing table / version+provenance |
 
 Env: `OCC_MODEL=<code|tag>` (default-model override), `OCC_DRY_RUN=1`
 (print the resolved command, don't launch), `OCC_MODELS_TSV=<path>`.
+
+Config: `~/.config/occ/occ.conf` (installed from
+`share/occ/occ.conf.example`) holds `KEY=VALUE` lines merged into the
+launch env — explicit env vars always win. This is where telemetry and
+future wrappers live:
+
+```
+OCC_OTEL=1                                # claude telemetry + one OTLP span per launch
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+# future — tapes session capture:
+# ANTHROPIC_BASE_URL=http://localhost:8080
+```
 
 Every launch gets `OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=64000`
 (coding-agent floor). Claude always gets `--dangerously-skip-permissions`.

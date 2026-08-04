@@ -28,12 +28,24 @@ _t "orch bare (interactive)" 'orch_model=glm-5.2:cloud tasks=<interactive>' \
                              "$(OCC_DRY_RUN=1 OCC_ORCH_MODEL= $OCC orch)"
 _t "orch model override"     'orch_model=nemotron-3-ultra:cloud tasks=<interactive>' \
                              "$(OCC_DRY_RUN=1 OCC_ORCH_MODEL=ultra $OCC orch)"
-_t "otel + code + args"      'model=deepseek-v4-flash:0731-cloud args=-p hi otel=1' \
-                             "$(OCC_DRY_RUN=1 $OCC otel ds -p hi)"
-_t "otel bare"               'model=glm-5.2:cloud args= otel=1' \
-                             "$(OCC_DRY_RUN=1 $OCC otel)"
-_t "otel + local code"       'model=gemma4:latest args= otel=1' \
-                             "$(OCC_DRY_RUN=1 $OCC otel g4)"
+_t "OCC_OTEL env marker"     'model=deepseek-v4-flash:0731-cloud args=-p hi otel=1' \
+                             "$(OCC_DRY_RUN=1 OCC_OTEL=1 $OCC ds -p hi)"
+_t "OCC_OTEL bare marker"    'model=glm-5.2:cloud args= otel=1' \
+                             "$(OCC_DRY_RUN=1 OCC_OTEL=1 $OCC)"
+# config file: OCC_OTEL=1 + OCC_MODEL=nano merge, explicit env wins over file
+local conf=/tmp/occ-test.$$.conf
+cat > "$conf" <<'EOF'
+# comment line
+OCC_OTEL=1
+junk line, skipped
+OCC_MODEL=nano
+PATH=/do/not/clobber
+EOF
+_t "occ.conf merges"         'model=nemotron-3-nano:30b-cloud args=-p x otel=1' \
+                             "$(OCC_DRY_RUN=1 OCC_CONFIG=$conf $OCC -p x)"
+_t "env wins over occ.conf"  'model=glm-5.2:cloud args=-p x' \
+                             "$(OCC_DRY_RUN=1 OCC_CONFIG=$conf OCC_MODEL= OCC_OTEL= $OCC -p x)"
+rm -f "$conf"
 _t "OCC_MODEL override code" 'model=nemotron-3-nano:30b-cloud args=-p x' \
                              "$(OCC_DRY_RUN=1 OCC_MODEL=nano $OCC -p x)"
 _t "OCC_MODEL literal tag"   'model=some.tag:v1 args='          "$(OCC_DRY_RUN=1 OCC_MODEL=some.tag:v1 $OCC)"
@@ -60,7 +72,7 @@ _t "__complete includes glm:desc" "0" "$?"
 local codes reserved overlap
 codes="$(awk -F'\t' '!/^#/ && NF==11 {print $1; n=split($2,a,","); for (i=1;i<=n;i++) if (a[i]!="-") print a[i]}' \
           "$OCC:h/../share/occ/models.tsv")"
-reserved="orch otel route list audit"
+reserved="orch route list audit"
 overlap=0
 for r in ${(z)reserved}; do
   print -r -- "$codes" | grep -qx -- "$r" && overlap=1
