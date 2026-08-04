@@ -125,6 +125,11 @@ usage: occ                       interactive, default model (glm)
        occ route <task>          advisory router — pick a code for a task
        occ orch <tasks>          route-and-staff orchestrator session
                                  (OCC_ORCH_MODEL to drive it, default glm)
+       occ otel [model] [args]   any occ launch WITH OpenTelemetry on:
+                                 CLAUDE telemetry enabled, OTEL_* env
+                                 forwarded, one span per launch emitted
+                                 (endpoint: OCC_OTEL_ENDPOINT or
+                                  OTEL_EXPORTER_OTLP_ENDPOINT, HTTP/4318)
        occ --check | --emit md | --version
 
 occ's help vs claude's help:
@@ -211,13 +216,42 @@ _occ_complete_dump() {   # feeds completions/_occ: "code:description" lines + lo
     printf "%s:%s\n", $1, $10
     n=split($2,a,","); for (i=1;i<=n;i++) if (a[i]!="-") printf "%s:alias for %s\n", a[i], $1 }' "$(_occ_tsv)"
   _occ_locals | sed 's/$/:installed local/' 2>/dev/null
-  print -l -- 'orch:route-and-staff orchestrator' 'route:advisory router' 'help:show help'
+  print -l -- 'orch:route-and-staff orchestrator' 'route:advisory router' \
+    'otel:launch with OpenTelemetry' 'help:show help'
+}
+
+# --------------------------------------------------------------- otel span --
+# With the otel modifier, occ emits one span per launch (HTTP JSON OTLP) so
+# staff/orch fan-outs show up in your collector. Fire-and-forget, max 2s,
+# zero impact on the launch itself. Endpoint = OTEL_EXPORTER_OTLP_ENDPOINT
+# (or OCC_OTEL_ENDPOINT). Timestamps are second-granularity; fine for spans
+# measured in seconds-to-minutes.
+
+_occ_emit_span() {  # $1=model $2=start_epoch_s $3=exit_code
+  local _ep="${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+  [[ -z "$_ep" ]] && return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  local _model="$1" _t0="$2" _rc="$3" _t1
+  _t1="$(date +%s)"
+  _model="${_model//\"/}"                                   # crude-but-safe for known tags
+  (
+    local _trace _span
+    _trace="${$(od -An -N16 -tx1 /dev/urandom 2>/dev/null)//[[:space:]]/}"
+    _span="${$(od -An -N8 -tx1 /dev/urandom 2>/dev/null)//[[:space:]]/}"
+    [[ -n "$_trace" && -n "$_span" ]] || exit 0
+    curl -sS --max-time 2 -X POST "$_ep/v1/traces" \
+      -H 'Content-Type: application/json' \
+      -d "{\"resourceSpans\":[{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"occ\"}}]},\"scopeSpans\":[{\"scope\":{\"name\":\"occ\"},\"spans\":[{\"traceId\":\"$_trace\",\"spanId\":\"$_span\",\"name\":\"occ launch $_model\",\"kind\":1,\"startTimeUnixNano\":\"${_t0}000000000\",\"endTimeUnixNano\":\"${_t1}000000000\",\"attributes\":[{\"key\":\"occ.model\",\"value\":{\"stringValue\":\"$_model\"}}],\"status\":{\"code\":$(( _rc == 0 ? 1 : 2 ))}}]}]}]}" \
+      >/dev/null 2>&1
+  ) &!
+  return 0
 }
 
 # ----------------------------------------------------------------- dispatch --
 _occ_load || exit 1
 
 local model
+local _with_otel=0
 if (( $# == 0 )); then
   model="$(_occ_default)"                                  # bare occ
 else
@@ -255,6 +289,26 @@ else
       print -u2 "occ: '$1' is a reserved subcommand — not yet implemented."
       print -u2 "     (local model named '$1'? use its full tag: occ $1:latest)"
       exit 2 ;;
+    otel)                                              # telemetry modifier
+      _with_otel=1
+      shift
+      export CLAUDE_CODE_ENABLE_TELEMETRY=1
+      [[ -z "${OTEL_SERVICE_NAME:-}" ]] && export OTEL_SERVICE_NAME="occ"
+      [[ -n "${OCC_OTEL_ENDPOINT:-}" && -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]] \
+        && export OTEL_EXPORTER_OTLP_ENDPOINT="$OCC_OTEL_ENDPOINT"
+      export OTEL_RESOURCE_ATTRIBUTES="${OTEL_RESOURCE_ATTRIBUTES:+$OTEL_RESOURCE_ATTRIBUTES,}occ.modifier=otel"
+      # re-dispatch the remaining slot (same three cases as the main dispatch
+      # below; kept explicit because zsh has no way to re-enter a case arm)
+      case "${1:-}" in
+        --) shift; model="$(_occ_default)" ;;
+        -*|"") model="$(_occ_default)" ;;                       # dash-first / bare
+        *)  if (( $+_occ_canon[$1] )); then
+              model="$_occ_tag[$_occ_canon[$1]]"
+            else
+              model="$(_occ_resolve "$1")" || exit 1
+            fi
+            shift ;;
+      esac ;;
     --)  shift; model="$(_occ_default)" ;;                  # explicit separator
     -*)  model="$(_occ_default)" ;;                         # dash-first = claude's; NO shift
     *)
@@ -269,8 +323,23 @@ fi
 [[ "${1:-}" == "--" ]] && shift   # normalize 'occ ds -- -p hi' == 'occ ds -p hi'
 
 if [[ -n "${OCC_DRY_RUN:-}" ]]; then
-  print -r -- "model=$model args=${(j: :)@}"
+  # note: ${_with_otel:+...} would match "0" too — :+ tests non-EMPTY, not truth
+  if (( _with_otel )); then
+    print -r -- "model=$model args=${(j: :)@} otel=1"
+  else
+    print -r -- "model=$model args=${(j: :)@}"
+  fi
   exit 0
+fi
+if (( _with_otel )); then
+  # no exec: stay alive to emit the span with real duration + exit code
+  local _occ_t0 _occ_rc
+  _occ_t0="$(date +%s)"
+  env OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=64000 \
+    ollama launch claude --model "$model" -- --dangerously-skip-permissions "$@"
+  _occ_rc=$?
+  _occ_emit_span "$model" "$_occ_t0" "$_occ_rc"
+  exit $_occ_rc
 fi
 exec env OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=64000 \
   ollama launch claude --model "$model" -- --dangerously-skip-permissions "$@"

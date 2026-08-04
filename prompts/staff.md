@@ -42,7 +42,17 @@ Each routed task gets a Worker session launched through occ:
 
 ```zsh
 occ <code> --append-system-prompt-file ~/dev/occ/prompts/worker.md -p "<brief>"
+
+# telemetry-enabled (spans per worker launch in your collector):
+occ otel <code> --append-system-prompt-file ~/dev/occ/prompts/worker.md -p "<brief>"
 ```
+
+Telemetry: set `OCC_OTEL_ENDPOINT=http://localhost:4318` (or the standard
+`OTEL_EXPORTER_OTLP_ENDPOINT`) and prefix worker commands with `otel`.
+occ exports `CLAUDE_CODE_ENABLE_TELEMETRY=1`, forwards all `OTEL_*` env,
+and emits one span per launch (model, duration, exit code).
+Use telemetry when the user asks for it or when a fan-out is big enough
+that observability pays for the overhead.
 
 Mechanics to respect:
 
