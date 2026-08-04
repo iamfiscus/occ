@@ -22,6 +22,12 @@ _t "code + post-model --"    'model=deepseek-v4-flash:0731-cloud args=--help' \
                              "$(OCC_DRY_RUN=1 $OCC ds -- --help)"
 _t "code + claude flag"      'model=qwen3.6:35b-mlx args=-c'    "$(OCC_DRY_RUN=1 $OCC q36 -c)"
 _t "alias resolves"          'model=kimi-k3:cloud args='        "$(OCC_DRY_RUN=1 $OCC ui)"
+_t "orch dry run"            'orch_model=glm-5.2:cloud tasks=fix the auth module' \
+                             "$(OCC_DRY_RUN=1 $OCC orch fix the auth module)"
+_t "orch bare (interactive)" 'orch_model=glm-5.2:cloud tasks=<interactive>' \
+                             "$(OCC_DRY_RUN=1 OCC_ORCH_MODEL= $OCC orch)"
+_t "orch model override"     'orch_model=nemotron-3-ultra:cloud tasks=<interactive>' \
+                             "$(OCC_DRY_RUN=1 OCC_ORCH_MODEL=ultra $OCC orch)"
 _t "OCC_MODEL override code" 'model=nemotron-3-nano:30b-cloud args=-p x' \
                              "$(OCC_DRY_RUN=1 OCC_MODEL=nano $OCC -p x)"
 _t "OCC_MODEL literal tag"   'model=some.tag:v1 args='          "$(OCC_DRY_RUN=1 OCC_MODEL=some.tag:v1 $OCC)"
@@ -48,7 +54,7 @@ _t "__complete includes glm:desc" "0" "$?"
 local codes reserved overlap
 codes="$(awk -F'\t' '!/^#/ && NF==11 {print $1; n=split($2,a,","); for (i=1;i<=n;i++) if (a[i]!="-") print a[i]}' \
           "$OCC:h/../share/occ/models.tsv")"
-reserved="route list audit"
+reserved="orch route list audit"
 overlap=0
 for r in ${(z)reserved}; do
   print -r -- "$codes" | grep -qx -- "$r" && overlap=1

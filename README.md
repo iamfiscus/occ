@@ -25,6 +25,7 @@ $ occ route "fix layout bug from this screenshot"   # advisory router
 | `occ help / -h` | occ's help (the ONLY tokens occ owns) |
 | `occ ds --help` | claude's help (flag lands after the model slot) |
 | `occ route <task>` | advisory router — prints a suggestion, never execs |
+| `occ orch <tasks>` | route-and-staff orchestrator session (`OCC_ORCH_MODEL` drives it) |
 | `occ --check / --emit md / --version` | validator / routing table / version+provenance |
 
 Env: `OCC_MODEL=<code|tag>` (default-model override), `OCC_DRY_RUN=1`

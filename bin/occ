@@ -123,6 +123,8 @@ usage: occ                       interactive, default model (glm)
        occ -- [claude args]      explicit separator: default model + claude args
        occ help | -h | --help    this help (the ONLY tokens occ owns)
        occ route <task>          advisory router — pick a code for a task
+       occ orch <tasks>          route-and-staff orchestrator session
+                                 (OCC_ORCH_MODEL to drive it, default glm)
        occ --check | --emit md | --version
 
 occ's help vs claude's help:
@@ -209,7 +211,7 @@ _occ_complete_dump() {   # feeds completions/_occ: "code:description" lines + lo
     printf "%s:%s\n", $1, $10
     n=split($2,a,","); for (i=1;i<=n;i++) if (a[i]!="-") printf "%s:alias for %s\n", a[i], $1 }' "$(_occ_tsv)"
   _occ_locals | sed 's/$/:installed local/' 2>/dev/null
-  print -l -- 'route:advisory router' 'help:show help'
+  print -l -- 'orch:route-and-staff orchestrator' 'route:advisory router' 'help:show help'
 }
 
 # ----------------------------------------------------------------- dispatch --
@@ -227,6 +229,28 @@ else
     --version|-V)    printf 'occ %s (%s)\n' "$OCC_VERSION" "${0:A}"; exit 0 ;;
     route) shift
       exec "$OCC_SCRIPT_DIR/occ-route" "$@" ;;               # advisory router
+    orch) shift                                              # route-and-staff orchestrator session
+      local orch_model
+      if [[ -n "${OCC_ORCH_MODEL:-}" ]]; then
+        (( $+_occ_canon[$OCC_ORCH_MODEL] )) \
+          && orch_model="$_occ_tag[$_occ_canon[$OCC_ORCH_MODEL]]" \
+          || orch_model="$OCC_ORCH_MODEL"                    # literal tag passthrough
+      else
+        orch_model="$(_occ_default)"
+      fi
+      local staff_prompt="$OCC_SCRIPT_DIR/../prompts/staff.md"
+      local staff_wf="$OCC_SCRIPT_DIR/../workflows/staff.js"
+      [[ -r "$staff_prompt" && -r "$staff_wf" ]] \
+        || { print -u2 "occ: orch needs $staff_prompt and $staff_wf"; exit 1 }
+      local tasks="$*"
+      local msg="You are the route-and-staff orchestrator (rules: appended prompt $staff_prompt). Launch the workflow now: Workflow({scriptPath: \"$staff_wf\", args: {tasks: <the list below>, quota: \"normal\", execute: false}}). Present me the routing plan and warnings; only after I confirm, re-run with execute:true. Tasks: ${tasks:-<none — ask me for the task list first>}"
+      if [[ -n "${OCC_DRY_RUN:-}" ]]; then
+        print -r -- "orch_model=$orch_model tasks=${tasks:-<interactive>}"
+        exit 0
+      fi
+      exec env OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=64000 \
+        ollama launch claude --model "$orch_model" -- --dangerously-skip-permissions \
+          --append-system-prompt-file "$staff_prompt" "$msg" ;;
     list|audit)
       print -u2 "occ: '$1' is a reserved subcommand — not yet implemented."
       print -u2 "     (local model named '$1'? use its full tag: occ $1:latest)"
