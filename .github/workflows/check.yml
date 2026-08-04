@@ -1,0 +1,9 @@
+name: check
+on: [push, pull_request]
+jobs:
+  validate:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: bin/occ --check
+      - run: zsh test/run.zsh

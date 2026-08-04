@@ -1,0 +1,62 @@
+#!/usr/bin/env zsh
+# occ arg-grammar regression tests (needs no ollama daemon: OCC_DRY_RUN=1).
+# usage: zsh test/run.zsh       (exit 0 = all pass)
+emulate -L zsh
+set -u
+local OCC="${0:A:h}/../bin/occ"
+local fail=0
+
+_t() {  # name expected actual
+  if [[ "$3" == "$2" ]]; then
+    printf 'ok   %s\n' "$1"
+  else
+    printf 'FAIL %s\n  want: %s\n  got:  %s\n' "$1" "$2" "$3"
+    (( fail++ ))
+  fi
+}
+
+_t "bare occ"                'model=glm-5.2:cloud args='        "$(OCC_DRY_RUN=1 $OCC)"
+_t "dash-first passthrough"  'model=glm-5.2:cloud args=-p hi'   "$(OCC_DRY_RUN=1 $OCC -p hi)"
+_t "explicit separator"      'model=glm-5.2:cloud args=-p hi'   "$(OCC_DRY_RUN=1 $OCC -- -p hi)"
+_t "code + post-model --"    'model=deepseek-v4-flash:0731-cloud args=--help' \
+                             "$(OCC_DRY_RUN=1 $OCC ds -- --help)"
+_t "code + claude flag"      'model=qwen3.6:35b-mlx args=-c'    "$(OCC_DRY_RUN=1 $OCC q36 -c)"
+_t "alias resolves"          'model=kimi-k3:cloud args='        "$(OCC_DRY_RUN=1 $OCC ui)"
+_t "OCC_MODEL override code" 'model=nemotron-3-nano:30b-cloud args=-p x' \
+                             "$(OCC_DRY_RUN=1 OCC_MODEL=nano $OCC -p x)"
+_t "OCC_MODEL literal tag"   'model=some.tag:v1 args='          "$(OCC_DRY_RUN=1 OCC_MODEL=some.tag:v1 $OCC)"
+
+# exit codes
+OCC_DRY_RUN=1 $OCC list >/dev/null 2>&1
+_t "reserved subcommand exit 2" "2" "$?"
+OCC_DRY_RUN=1 $OCC nosuchmodel >/dev/null 2>&1
+_t "unknown model still literal (exit 0)" "0" "$?"
+$OCC help >/dev/null 2>&1
+_t "occ help exit 0" "0" "$?"
+$OCC help 2>/dev/null | grep -q "claude's help"
+_t "help documents the split" "0" "$?"
+$OCC --check >/dev/null 2>&1
+_t "--check exit 0" "0" "$?"
+$OCC --version >/dev/null 2>&1
+_t "--version exit 0" "0" "$?"
+$OCC --emit md 2>/dev/null | grep -q '^| glm |'
+_t "--emit md includes glm row" "0" "$?"
+$OCC __complete 2>/dev/null | grep -q '^glm:'
+_t "__complete includes glm:desc" "0" "$?"
+
+# reserved words stay disjoint from MODEL CODES (router/table invariant)
+local codes reserved overlap
+codes="$(awk -F'\t' '!/^#/ && NF==11 {print $1; n=split($2,a,","); for (i=1;i<=n;i++) if (a[i]!="-") print a[i]}' \
+          "$OCC:h/../share/occ/models.tsv")"
+reserved="route list audit"
+overlap=0
+for r in ${(z)reserved}; do
+  print -r -- "$codes" | grep -qx -- "$r" && overlap=1
+done
+_t "code list disjoint from reserved words" "0" "$overlap"
+
+if (( fail > 0 )); then
+  printf '\n%d failure(s)\n' "$fail"
+  exit 1
+fi
+printf '\nall tests passed\n'

@@ -1,0 +1,175 @@
+#!/usr/bin/env zsh
+# occ route [--low-quota] <task description> — advisory model router.
+# Prints a suggested `occ <code> ...` invocation. NEVER executes it.
+#
+# Fast path: deterministic gates (privacy/offline, low-quota, vision-file) —
+# no LLM call. Slow path: LOCAL classifier (gemma4:latest via ollama run) so
+# private task descriptions never leave the machine and routing works offline.
+# Model map: share/occ/models.tsv (same file bin/occ reads).
+
+emulate -L zsh
+set -u
+zmodload zsh/datetime 2>/dev/null  # EPOCHSECONDS for the staleness check
+
+local low_quota=0
+[[ "${1:-}" == "--low-quota" ]] && { low_quota=1; shift }
+local task="$*"
+[[ -z "$task" ]] && { print -u2 "usage: occ route [--low-quota] <task description>"; exit 2 }
+
+local TSV="${0:A:h}/../share/occ/models.tsv"
+[[ -r "$TSV" ]] || { print -u2 "occ-route: model map missing: $TSV"; exit 1 }
+
+# --- helpers ---------------------------------------------------------------
+local -a installed
+installed=(${(f)"$(ollama ls 2>/dev/null | awk 'NR>1 && $3!="-" {print $1}')"})
+
+_tag() { awk -F'\t' -v c="$1" '!/^#/ && NF==11 && ($1==c || index(","$2",", ","c",")) {print $3; exit}' "$TSV" }
+_is_local() { awk -F'\t' -v c="$1" '!/^#/ && NF==11 && $1==c {print ($4=="local" ? "1" : "0"); exit}' "$TSV" }
+_have() {
+  [[ "$(_is_local "$1")" == "1" ]] || return 1
+  local t="$(_tag "$1")"   # TSV tags often lack :latest — tolerate suffix
+  local -a mm
+  mm=( ${(M)installed:#${t}(|:*)} )
+  (( ${#mm} ))
+}
+
+# pick first pull-first local code that is installed; else its pull hint
+_pick_local() {
+  local c
+  for c in "$@"; do
+    (( $(_is_local "$c") )) && _have "$c" && { print -r -- "$c"; return 0 }
+  done
+  return 1
+}
+
+_emit() {   # $1=code $2=rationale
+  print "Routing decision"
+  print "----------------"
+  print "suggested  : occ $1"
+  print "rationale  : $2"
+  print "invocation : occ $1 --your-args"
+  case "$1" in
+    kimi|ui)
+      print
+      print "[METERED] kimi-k3 bills \$3/\$15 per 1M tokens OUTSIDE your flat"
+      print "          subscription — confirm before launching." ;;
+    pro)
+      print
+      print "[WARNING] deepseek-v4-pro: worst hallucination profile"
+      print "          (OmniScience 5.7), heavy quota burn. Single shots only." ;;
+  esac
+  case "$1" in
+    nano|pro|ultra|q397)
+      print
+      print "[quota] code '$1' burns premium quota — check ollama.com/settings first." ;;
+  esac
+  print
+  print "(advisory only — nothing executed)"
+}
+
+# staleness warning (>90 days since audit)
+local audited; audited="$(grep -m1 '^# audited:' "$TSV" 2>/dev/null | awk '{print $3}')"
+if [[ -n "$audited" ]]; then
+  local aud_epoch
+  aud_epoch=$(date -j -f "%Y-%m-%d" "$audited" "+%s" 2>/dev/null) || aud_epoch=0
+  if (( aud_epoch > 0 && EPOCHSECONDS - aud_epoch > 90 * 86400 )); then
+    print -u2 "occ-route: model map audited $audited (>90 days) — consider re-auditing"
+  fi
+fi
+
+# --- fast path 1: privacy / offline (hard override — local only) -----------
+if [[ "$task" == *[Pp]rivate* || "$task" == *[Cc]onfidential* || "$task" == *[Cc]lient* \
+      || "$task" == *[Nn][Dd][Aa]* || "$task" == *[Ss]ecret* || "$task" == *[Pp]roprietary* \
+      || "$task" == *[Oo]ffline* || "$task" == *[Aa]irplane* || "$task" == *"no wifi"* \
+      || "$task" == *"no-wifi"* || "$task" == *[Hh][Ii][Pp][Aa][Aa]* ]]; then
+  local pick
+  if [[ "$task" == *[Ss]creenshot* || "$task" == *[Mm]ock* || "$task" == *[Ii]mage* \
+        || "$task" == *[Dd]iagram* ]]; then
+    pick="$(_pick_local g4)"
+  elif [[ "$task" == *[Rr]efactor* || "$task" == *[Aa]rchitect* || "$task" == *[Dd]ebug* \
+          || "$task" == *multi-file* ]]; then
+    pick="$(_pick_local q36 g4c q35 l)"
+  else
+    pick="$(_pick_local g4c q35 l)"
+  fi
+  if [[ -n "$pick" ]]; then
+    _emit "$pick" "privacy/offline gate — local only"
+  else
+    print "private/offline task needs a local model, none of the coded locals are pulled."
+    print "  requires: ollama pull qwen3.6:35b-mlx   (or gemma4:12b / qwen3.5:9b-mlx for lighter)"
+  fi
+  exit 0
+fi
+
+# --- fast path 2: low quota (explicit user signal only) --------------------
+if (( low_quota )); then
+  if [[ "$task" == *[Rr]ename* || "$task" == *[Ff]ormat* || "$task" == *[Bb]ulk* \
+        || "$task" == *[Ss]weep* || "$task" == *[Tt]ypo* || "$task" == *[Bb]oilerplate* ]]; then
+    _emit nano "low-quota gate — mechanical volume work → cheapest quota tier"
+  else
+    _emit ds "low-quota gate — routine work demoted to fast/cheap"
+  fi
+  print "[blocked under --low-quota: pro, ultra, kimi — confirm cost to override]"
+  exit 0
+fi
+
+# --- fast path 3: vision — task references an existing image file ----------
+local w
+for w in ${(z)task}; do
+  if [[ -f "$w" && "$w" == *(png|jpg|jpeg|webp|heic|gif|pdf) ]]; then
+    if [[ "$task" == *[Dd]esign* || "$task" == *[Ff]rontend* || "$task" == *[Pp]ixel* \
+          || "$task" == *[Mm]ockup* ]]; then
+      _emit kimi "vision gate — design-critical frontend"
+    else
+      _emit vis "vision gate — screenshot/OCR utility → best per dollar"
+    fi
+    exit 0
+  fi
+done
+
+# --- slow path: local classifier -------------------------------------------
+if ! _have g4; then
+  print "suggested  : occ glm (classifier model gemma4:latest not installed;"
+  print "             ollama pull gemma4, or pick from 'occ help')"
+  exit 0
+fi
+
+local codes; codes="$(awk -F'\t' '!/^#/ && NF==11 {printf "%s (%s); ", $1, $10}' "$TSV")"
+local out; out="$(ollama run gemma4:latest \
+  "You are a model router for the 'occ' launcher. Available codes: $codes
+Task: $task
+Rules: default coding/architecture -> glm. design-critical frontend -> kimi (metered).
+agentic IDE loops -> code. fast/cheap routine -> ds. bulk data near 1M ctx -> data.
+marathon multi-hour debug -> ultra. single hard backend bug -> q397.
+screenshot/OCR -> vis. content/multimodal long docs -> content. mechanical volume -> nano.
+max-effort single-shot math ONLY -> pro.
+Reply with EXACTLY one line: CODE=<code> CONF=<0-100> WHY=<max 10 words>" 2>/dev/null \
+  | LC_ALL=C sed -e $'s/\x1b\\[[0-9;]*[A-Za-z]//g' | tr -d '\r')"   # strip spinner CSI/cursor junk
+
+if [[ -z "$out" ]]; then
+  print "classifier unavailable; default: occ glm"
+  exit 1
+fi
+
+local code="${${out##*CODE=}%% *}"
+local conf="${${out##*CONF=}%% *}"
+local why="${out##*WHY=}"
+
+# validate against TSV codes + aliases; unknown -> safe fallback
+local canon; canon="$(awk -F'\t' -v c="$code" '!/^#/ && NF==11 {
+  if ($1==c) {print $1; found=1}
+  else { n=split($2,a,","); for (i=1;i<=n;i++) if (a[i]==c) {print $1; found=1} }
+} END {if (!found) exit 1}' "$TSV")"
+if [[ -z "$canon" ]]; then
+  print "classifier proposed unknown code '$code' — fallback: occ glm"
+  exit 0
+fi
+# local requires_pull check
+if (( $(_is_local "$canon") )) && ! _have "$canon"; then
+  print "classifier picked local '$canon' — not pulled. requires: ollama pull $(_tag "$canon")"
+  _emit glm "fallback while '$canon' is not installed"
+  exit 0
+fi
+_emit "$canon" "$why"
+[[ "$conf" =~ ^[0-9]+$ && $conf -lt 60 ]] && print "low confidence ($conf) — runner-up: occ glm"
+exit 0

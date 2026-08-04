@@ -1,0 +1,249 @@
+#!/usr/bin/env zsh
+# occ — launch claude via ollama with a model.
+#
+# ARG GRAMMAR (occ inspects slot 1 only; everything after the model is claude's):
+#   occ                        -> default model, interactive
+#   occ MODEL [ARGS...]        -> TSV code > dynamic local > literal passthrough
+#   occ -FLAG [ARGS...]        -> default model; ALL args verbatim to claude
+#   occ -- [ARGS...]           -> default model; ARGS -> claude (explicit separator)
+#   occ help | -h | --help     -> occ's own help (the ONLY tokens occ owns)
+#   occ route <task>           -> advisory router (bin/occ-route)
+#   occ --check | --emit | --version
+#   list, audit                -> reserved subcommand words (exit 2)
+# A single '--' immediately after MODEL is stripped, so 'occ ds -- --help'
+# == 'occ ds --help' (a leading '--' is semantically inert for claude's parser).
+# ORDER NOTE (load-bearing): the literal patterns below MUST precede -*).
+
+OCC_VERSION="0.1.0"
+emulate -L zsh
+set -u
+
+# NOTE: capture at TOP LEVEL — inside a function $0 is the function name,
+# not the script, so ${0:A} computed in a function resolves against $PWD.
+OCC_SCRIPT_DIR="${0:A:h}"
+
+# ---------------------------------------------------------------- model map --
+# Single source of truth: share/occ/models.tsv (see file header for schema).
+# OCC_MODELS_TSV overrides discovery. Checkout and standalone installs share
+# the same layout, so one candidate path covers both.
+
+_occ_tsv() {
+  if [[ -n "${OCC_MODELS_TSV:-}" ]]; then
+    print -r -- "$OCC_MODELS_TSV"
+  else
+    print -r -- "$OCC_SCRIPT_DIR/../share/occ/models.tsv"
+  fi
+}
+
+typeset -A _occ_tag _occ_tier _occ_billing _occ_vision _occ_agentic _occ_ctx \
+           _occ_flags _occ_use _occ_avoid _occ_canon
+typeset -a _occ_codes
+
+_occ_load() {
+  local _tsv="$(_occ_tsv)"
+  [[ -r "$_tsv" ]] || { print -u2 "occ: model map not found: $_tsv"; return 1 }
+  local code aliases tag tier billing vision agentic ctx flags use avoid a
+  while IFS=$'\t' read -r code aliases tag tier billing vision agentic ctx flags use avoid; do
+    _occ_codes+=("$code")
+    _occ_tag[$code]=$tag;       _occ_tier[$code]=$tier
+    _occ_billing[$code]=$billing; _occ_vision[$code]=$vision
+    _occ_agentic[$code]=$agentic; _occ_ctx[$code]=$ctx
+    _occ_flags[$code]=$flags;   _occ_use[$code]=$use
+    _occ_avoid[$code]=$avoid;   _occ_canon[$code]=$code
+    for a in ${(s:,:)aliases}; do
+      [[ "$a" == "-" ]] && continue
+      _occ_canon[$a]=$code
+    done
+  done < <(awk -F'\t' '
+    /^[[:space:]]*#/ || NF==0 { next }
+    NF != 11 { printf "occ: %s:%d: expected 11 fields, got %d (tab corruption?)\n",
+               FILENAME, NR, NF > "/dev/stderr"; bad=1; next }
+    { print }
+    END { exit bad }' "$_tsv") || return 1
+}
+
+_occ_default() {
+  if [[ -n "${OCC_MODEL:-}" ]]; then
+    if (( $+_occ_canon[$OCC_MODEL] )); then
+      print -r -- "$_occ_tag[$_occ_canon[$OCC_MODEL]]"
+    else
+      print -r -- "$OCC_MODEL"        # literal passthrough, same contract as models
+    fi
+    return
+  fi
+  local c
+  for c in $_occ_codes; do
+    [[ "$_occ_flags[$c]" == *default* ]] && { print -r -- "$_occ_tag[$c]"; return }
+  done
+  print -r -- "glm-5.2:cloud"
+}
+
+# ------------------------------------------------------------ dynamic locals --
+_occ_locals() { ollama ls 2>/dev/null | awk 'NR>1 && $3!="-" {print $1}' }  # skip :cloud rows (SIZE '-')
+
+_occ_ambig() {
+  print -u2 "occ: '$1' is ambiguous:"
+  shift
+  print -u2 -l -- $@
+  print -u2 'be more specific (longer substring or full tag)'
+  return 1
+}
+
+_occ_resolve() {
+  # exact tag > exact basename > unique prefix > unique substring.
+  # any tier with >1 match is a hard error; no match = literal passthrough.
+  local q="$1"
+  local -a n m
+  n=(${(f)"$(_occ_locals)"})
+  (( ${#n} )) || { print -r -- "$q"; return 0 }              # daemon down / no locals
+  (( ${n[(Ie)$q]} )) && { print -r -- "$q"; return 0 }       # exact full tag
+  if [[ "$q" != *:* ]]; then                                 # exact basename (unique)
+    m=( ${(M)n:#${q}:*} )
+    (( ${#m} == 1 )) && { print -r -- "$m"; return 0 }
+    (( ${#m} > 1 )) && { _occ_ambig "$q" $m; return 1 }
+  fi
+  m=( ${(M)n:#${q}*} )                                       # unique prefix
+  (( ${#m} == 1 )) && { print -r -- "$m"; return 0 }
+  (( ${#m} > 1 )) && { _occ_ambig "$q" $m; return 1 }
+  m=( ${(M)n:#*${q}*} )                                      # unique substring
+  (( ${#m} == 1 )) && { print -r -- "$m"; return 0 }
+  (( ${#m} > 1 )) && { _occ_ambig "$q" $m; return 1 }
+  print -u2 "occ: no local match for '$q' — literal passthrough"
+  print -r -- "$q"
+}
+
+# ------------------------------------------------------------------- output --
+_occ_help() {
+  local _tsv="$(_occ_tsv)"
+  local installed; installed="$(ollama ls 2>/dev/null | awk 'NR>1{print $1}')"
+  cat <<'EOF'
+usage: occ                       interactive, default model (glm)
+       occ MODEL [claude args]   pick a model; everything after is claude's
+       occ -FLAG [args]          dash-first: default model, flags go to claude
+       occ -- [claude args]      explicit separator: default model + claude args
+       occ help | -h | --help    this help (the ONLY tokens occ owns)
+       occ route <task>          advisory router — pick a code for a task
+       occ --check | --emit md | --version
+
+occ's help vs claude's help:
+  occ help / -h / --help   occ (this text)
+  occ ds --help            claude's help — flag lands after the model slot
+  occ -- --help            claude's help, default model (separator form)
+
+codes (from share/occ/models.tsv — edit that file, not this help):
+EOF
+  awk -F'\t' -v inst="$installed" '
+    BEGIN { n=split(inst, have, "\n"); for (i=1;i<=n;i++) present[have[i]]=1
+            order[1]="cloud"; order[2]="local" }
+    /^#/ || NF!=11 { next }
+    { badge = ($4=="local") ? "  " (($3 in present) ? "[installed]" : "[pull-first]") : ""
+      avoid = ($11=="-" ? "" : "   AVOID: " $11)
+      row[$4] = row[$4] sprintf("  %-14s %-30s [%s|%s%s]%s\n        %s%s\n",
+        ($2=="-" ? $1 : $1 " (" $2 ")"), $3, $4, $5,
+        ($8=="-" ? "" : "," $8 " ctx"), badge, $10, avoid) }
+    END { for (t=1;t<=2;t++) printf "\n%s:\n%s", order[t], row[order[t]] }
+  ' "$_tsv"
+  cat <<'EOF'
+dynamic locals: any installed model resolves by unambiguous substring
+(`occ coder:7b`, `occ tools`). TSV codes always preempt locals. no local
+match = literal passthrough (works for any tag/pull).
+
+rules: cloud default; local for privacy/offline/throwaway. never <4B
+models for agentic work; one 18GB+ local at a time; Q4/-mlx only, no fp16.
+kimi is METERED ($3/$15 per 1M, outside flat sub). pro = single shots only.
+check quota before nano/pro/ultra heavy sessions. re-audit quarterly.
+
+env: OCC_MODEL=<code|tag> default-model override   OCC_DRY_RUN=1 print resolved cmd
+EOF
+}
+
+_occ_emit() {
+  case "${1:-}" in
+    md) awk -F'\t' '
+          BEGIN { print "| code | tier | billing | vision | agentic | ctx | use_for | avoid |"
+                  print "|---|---|---|---|---|---|---|---|" }
+          !/^#/ && NF==11 { printf "| %s | %s | %s | %s | %s | %s | %s | %s |\n",
+                            $1,$4,$5,$6,$7,$8,$10,($11=="-"?"":$11) }' "$(_occ_tsv)" ;;
+    *)  print -u2 "occ: unknown emit format: ${1:-<missing>} (have: md)"; return 1 ;;
+  esac
+}
+
+_occ_check() {
+  local _tsv="$(_occ_tsv)"
+  awk -F'\t' '
+    function err(nr, msg) { printf "occ --check: %s:%d: %s\n", FILENAME, nr, msg; rc=1 }
+    /^[[:space:]]*#/ || NF==0 { next }
+    {
+      if (NF != 11)    { err(NR, "expected 11 fields, got " NF); next }
+      if ($1 in codes)   err(NR, "duplicate code: " $1)
+      if ($1 in aliases) err(NR, "code shadows earlier alias: " $1)
+      codes[$1]=NR
+      if ($4 !~ /^(cloud|local)$/)         err(NR, "bad tier: " $4)
+      if ($5 !~ /^(flat|metered|free)$/)   err(NR, "bad billing: " $5)
+      if ($6 !~ /^(yes|no|-)$/)            err(NR, "bad vision: " $6)
+      if ($7 !~ /^(high|medium|low)$/)     err(NR, "bad agentic: " $7)
+      if ($4=="cloud" && $3 !~ /(:cloud|-cloud)$/) err(NR, "cloud tag lacks cloud suffix: " $3)
+      if ($4=="local" && $3 ~ /cloud/)     err(NR, "local tag looks cloud: " $3)
+      if ($9 ~ /(^|,)default(,|$)/) def++
+      n=split($2, a, ",")
+      for (i=1;i<=n;i++) if (a[i] != "-") {
+        if (a[i] in aliases) err(NR, "alias collision: " a[i])
+        if (a[i] in codes)   err(NR, "alias shadows a code: " a[i])
+        aliases[a[i]]=NR
+      }
+    }
+    END {
+      if (def != 1) { printf "occ --check: exactly one default row required, found %d\n", def; rc=1 }
+      exit rc }' "$_tsv" || return 1
+  awk -F'\t' '!/^#/ && NF==11 && $4=="local" {print $3}' "$_tsv" | while read -r tag; do
+    ollama ls 2>/dev/null | awk 'NR>1{print $1}' | grep -qx -- "$tag" \
+      || print -u2 "occ --check: note: local '$tag' not pulled (ok if pull-first)"
+  done
+}
+
+_occ_complete_dump() {   # feeds completions/_occ: "code:description" lines + locals
+  awk -F'\t' '!/^#/ && NF==11 {
+    printf "%s:%s\n", $1, $10
+    n=split($2,a,","); for (i=1;i<=n;i++) if (a[i]!="-") printf "%s:alias for %s\n", a[i], $1 }' "$(_occ_tsv)"
+  _occ_locals | sed 's/$/:installed local/' 2>/dev/null
+  print -l -- 'route:advisory router' 'help:show help'
+}
+
+# ----------------------------------------------------------------- dispatch --
+_occ_load || exit 1
+
+local model
+if (( $# == 0 )); then
+  model="$(_occ_default)"                                  # bare occ
+else
+  case "$1" in
+    help|-h|--help)  _occ_help; exit 0 ;;                  # occ's only tokens
+    --check)         _occ_check; exit $? ;;
+    --emit)          _occ_emit "$2"; exit $? ;;
+    __complete)      _occ_complete_dump; exit 0 ;;          # hidden, for completion
+    --version|-V)    printf 'occ %s (%s)\n' "$OCC_VERSION" "${0:A}"; exit 0 ;;
+    route) shift
+      exec "$OCC_SCRIPT_DIR/occ-route" "$@" ;;               # advisory router
+    list|audit)
+      print -u2 "occ: '$1' is a reserved subcommand — not yet implemented."
+      print -u2 "     (local model named '$1'? use its full tag: occ $1:latest)"
+      exit 2 ;;
+    --)  shift; model="$(_occ_default)" ;;                  # explicit separator
+    -*)  model="$(_occ_default)" ;;                         # dash-first = claude's; NO shift
+    *)
+      if (( $+_occ_canon[$1] )); then
+        model="$_occ_tag[$_occ_canon[$1]]"                  # TSV codes preempt locals
+      else
+        model="$(_occ_resolve "$1")" || exit 1
+      fi
+      shift ;;
+  esac
+fi
+[[ "${1:-}" == "--" ]] && shift   # normalize 'occ ds -- -p hi' == 'occ ds -p hi'
+
+if [[ -n "${OCC_DRY_RUN:-}" ]]; then
+  print -r -- "model=$model args=${(j: :)@}"
+  exit 0
+fi
+exec env OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=64000 \
+  ollama launch claude --model "$model" -- --dangerously-skip-permissions "$@"

@@ -1,0 +1,13 @@
+# tabs inside models.tsv are structural — an editor converting them to
+# spaces corrupts rows invisibly (occ --check will catch it, loudly)
+[*.tsv]
+indent_style = tab
+indent_size = 8
+
+[*.zsh]
+indent_style = space
+indent_size = 2
+
+[*.sh]
+indent_style = space
+indent_size = 2
