@@ -89,21 +89,29 @@ echo "==> link  $ZFUNCS/_occ -> $SRC_DIR/completions/_occ"
 # --- 4. ~/.zshrc managed block (PATH + fpath, above oh-my-zsh) --------------
 if [ -f "$ZSHRC" ] && ! grep -qF "$MARK_BEGIN" "$ZSHRC"; then
   cp "$ZSHRC" "$ZSHRC.bak.occ"
-  BLOCK="$MARK_BEGIN
-export PATH=\"\$HOME/bin:\$PATH\"
-fpath=(\"\$HOME/.local/share/zsh/site-functions\" \$fpath)
-$MARK_END"
+  # build the block in a temp file — BSD awk rejects multi-line -v strings
+  BLOCK_FILE=$(mktemp /tmp/occ-block.XXXXXX)
+  printf '%s\nexport PATH="$HOME/bin:$PATH"\nfpath=("$HOME/.local/share/zsh/site-functions" $fpath)\n%s\n' \
+    "$MARK_BEGIN" "$MARK_END" > "$BLOCK_FILE"
+  OUT_FILE=$(mktemp /tmp/occ-zshrc.XXXXXX)
   if grep -q 'source.*oh-my-zsh.sh' "$ZSHRC"; then
     # fpath must land before oh-my-zsh runs compinit
-    awk -v block="$BLOCK" '
-      !done && /source.*oh-my-zsh\.sh/ { print block; done=1 }
+    awk -v bf="$BLOCK_FILE" '
+      !done && /source.*oh-my-zsh\.sh/ { system("cat \"" bf "\""); done=1 }
       { print }
-    ' "$ZSHRC.bak.occ" > "$ZSHRC"
-    echo "==> zshrc managed block inserted above oh-my-zsh (.zshrc.bak.occ saved)"
+    ' "$ZSHRC.bak.occ" > "$OUT_FILE"
   else
-    { echo "$BLOCK"; cat "$ZSHRC.bak.occ"; } > "$ZSHRC"
-    echo "==> zshrc managed block inserted at top (.zshrc.bak.occ saved)"
+    { cat "$BLOCK_FILE"; cat "$ZSHRC.bak.occ"; } > "$OUT_FILE"
   fi
+  # never shrink-to-zero on an awk failure: only replace when non-trivial
+  if [ "$(wc -l < "$OUT_FILE")" -ge 10 ]; then
+    mv "$ZSHRC" "$ZSHRC.pre-occ-block"
+    mv "$OUT_FILE" "$ZSHRC"
+    echo "==> zshrc managed block inserted (.pre-occ-block saved)"
+  else
+    echo "error: generated zshrc looks wrong — keeping original"; exit 1
+  fi
+  rm -f "$BLOCK_FILE"
 else
   [ -f "$ZSHRC" ] && echo "==> zshrc managed block already present (skipped)"
 fi

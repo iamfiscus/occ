@@ -196,7 +196,10 @@ _occ_check() {
       if (def != 1) { printf "occ --check: exactly one default row required, found %d\n", def; rc=1 }
       exit rc }' "$_tsv" || return 1
   awk -F'\t' '!/^#/ && NF==11 && $4=="local" {print $3}' "$_tsv" | while read -r tag; do
-    ollama ls 2>/dev/null | awk 'NR>1{print $1}' | grep -qx -- "$tag" \
+    # TSV tags often lack :latest — exact match or '<tag>:latest' both count
+    ollama ls 2>/dev/null | awk -v t="$tag" '
+      NR>1 && ($1 == t || $1 == t ":latest") { found=1 }
+      END { exit !found }' \
       || print -u2 "occ --check: note: local '$tag' not pulled (ok if pull-first)"
   done
 }
