@@ -4,8 +4,8 @@
 the model:
 
 ```console
-$ occglm                 # glm-5.2:cloud — best raw coding (default)
-$ occ ds "summarize this diff"   # deepseek-v4-flash — fast/cheap routine
+$ occ                    # glm-5.3:cloud — best raw coding (default)
+$ occ ds "summarize this diff"   # deepseek-v4.1-flash — fast/cheap routine
 $ occ ultra              # nemotron-3-ultra — marathon debugging agents
 $ occ ultra -p "trace this flaky test"
 $ occ l                  # glm-4.7-flash — local, private / offline
@@ -41,6 +41,17 @@ OCC_OTEL=1                                # claude telemetry + one OTLP span per
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 # future — tapes session capture:
 # ANTHROPIC_BASE_URL=http://localhost:8080
+```
+
+Tier mixing: `ollama launch` pins every Claude tier (opus, sonnet, haiku,
+subagent) to the launched model. Set `OCC_OPUS`, `OCC_SONNET`, `OCC_HAIKU`
+or `OCC_SUBAGENT` (a code or a tag, in env or `occ.conf`) to route that tier
+elsewhere; occ passes them as `claude --settings '{"env":{...}}'`, which wins
+over the env ollama sets:
+
+```
+OCC_HAIKU=ds          # background calls on deepseek-v4.1-flash
+OCC_SUBAGENT=mm3      # Agent-tool subagents on minimax-m3.1-flash
 ```
 
 Every launch gets `OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=64000`

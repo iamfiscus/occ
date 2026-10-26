@@ -59,7 +59,7 @@ _emit() {   # $1=code $2=rationale
       print "          (OmniScience 5.7), heavy quota burn. Single shots only." ;;
   esac
   case "$1" in
-    nano|pro|ultra|q397)
+    nano|pro|ultra)
       print
       print "[quota] code '$1' burns premium quota — check ollama.com/settings first." ;;
   esac
@@ -140,7 +140,7 @@ local out; out="$(ollama run gemma4:latest \
 Task: $task
 Rules: default coding/architecture -> glm. design-critical frontend -> kimi (metered).
 agentic IDE loops -> code. fast/cheap routine -> ds. bulk data near 1M ctx -> data.
-marathon multi-hour debug -> ultra. single hard backend bug -> q397.
+marathon multi-hour debug -> ultra. single hard backend bug -> muse.
 screenshot/OCR -> vis. content/multimodal long docs -> content. mechanical volume -> nano.
 max-effort single-shot math ONLY -> pro.
 Reply with EXACTLY one line: CODE=<code> CONF=<0-100> WHY=<max 10 words>" 2>/dev/null \

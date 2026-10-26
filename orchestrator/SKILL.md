@@ -3,7 +3,7 @@ name: occ-route
 description: Route a task to the right occ model code before the user launches a
   new Claude Code-via-ollama session. Use when the user asks "which model should I
   use", "route this task", describes work they're about to start in a fresh occ
-  session, mentions occ codes (glm, kimi, ds, ultra, q397, nano, l, g4c, q35,
+  session, mentions occ codes (glm, kimi, ds, ultra, muse, nano, l, g4c, q35,
   q36...), or wants to escalate off a failing model. Decision table of record:
   share/occ/models.tsv (render with `occ --emit md` — never hardcode the map).
 ---
@@ -48,8 +48,8 @@ note and continue.)
 
 - design-critical frontend → kimi ONLY after the METERED ACK, and only after
   offering glm as flat-sub alternative
-- screenshot/OCR utility → vis (qwen3.5:cloud)
-- multimodal content / long docs → content (minimax-m3)
+- screenshot/OCR utility → vis (glm-5.3-flash)
+- multimodal content / long docs → content (minimax-m3.1-flash)
 
 ### Gate 3 — COST DEMOTION (only if user stated low quota / >80%)
 
@@ -64,16 +64,16 @@ note and continue.)
 - routine/fast agents, long docs → ds
 - bulk data/CSV/log near 1M ctx → data
 - marathon multi-hour debug/plan agent → ultra
-- single hard backend bug (esp. after glm failed) → q397
+- single hard backend bug (esp. after glm failed) → muse
 - single-shot max math/reasoning, user EXPLICITLY wants it → pro + warning.
   Never default, never agentic loops.
-- uncertain → glm (never default to pro/q397/ultra/kimi)
+- uncertain → glm (never default to pro/ultra/kimi)
 
 ### Gate 5 — ESCALATION (user reports previous tier failed)
 
 Ask what failed; step exactly one rung:
 
-- bug-hunt: ds → glm → q397
+- bug-hunt: ds → glm → muse
 - agentic-length: ds → glm → ultra
 - pro is off both ladders — opt-in with warning only.
 

@@ -34,7 +34,7 @@ This spawns one routing agent per task (each re-reads the roster live) and
 returns `{code, confidence, rationale, brief, warnings}` per task.
 Assess-first, staff-second: review the routing plan with the user before
 setting execute:true. Never execute a metered code (kimi) or premium quota
-code (pro/ultra/q397) without calling out the cost explicitly.
+code (pro/ultra) without calling out the cost explicitly.
 
 ## 4. Staff workers (execute:true)
 
@@ -73,6 +73,6 @@ error verbatim — don't launder it.
 - never route <4B models to agentic work; never fp16/bf16 quants
 - never auto-pull a missing model (flag it)
 - never execute kimi without a dollar-figure confirmation from the user
-- never staff premium codes (pro/ultra/q397) under low quota without
+- never staff premium codes (pro/ultra) under low quota without
   explicit user override
 - never override an explicit user-chosen code

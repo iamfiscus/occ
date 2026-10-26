@@ -75,7 +75,7 @@ _occ_default() {
   for c in $_occ_codes; do
     [[ "$_occ_flags[$c]" == *default* ]] && { print -r -- "$_occ_tag[$c]"; return }
   done
-  print -r -- "glm-5.2:cloud"
+  print -r -- "glm-5.3:cloud"
 }
 
 # ------------------------------------------------------------ dynamic locals --
@@ -133,6 +133,8 @@ config: ~/.config/occ/occ.conf — KEY=VALUE, merged into the launch env
                                    one OTLP launch-span per occ run
   OTEL_EXPORTER_OTLP_ENDPOINT=...  span/metric destination (HTTP :4318)
   OCC_MODEL=nano                   override default model
+  OCC_OPUS / OCC_SONNET /          route a claude tier to another model
+  OCC_HAIKU / OCC_SUBAGENT=<code>  (default: every tier = launched model)
   ANTHROPIC_BASE_URL=...           future: proxy capture (e.g. tapes :8080)
 
 occ's help vs claude's help:
@@ -262,6 +264,7 @@ _occ_conf() {
   local line key val
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%%#*}"
+    line="${line%"${line##*[![:space:]]}"}"           # drop spaces before a trailing comment
     [[ -n "$line" ]] || continue
     [[ "$line" =~ '^((OCC|OTEL|CLAUDE|ANTHROPIC|OLLAMA)_[A-Z0-9_]*)=(.*)$' ]] || continue
     key="${match[1]}"; val="${match[3]}"
@@ -269,6 +272,28 @@ _occ_conf() {
     (( ${+parameters[$key]} )) && continue            # set — even empty — wins
     typeset -g "$key"="$val"
   done < "$_f"
+}
+
+# ------------------------------------------------------------- tier mixing --
+# ollama launch pins every claude tier (opus/sonnet/haiku/subagent) to the
+# launched model and overwrites those env vars. claude's --settings env wins
+# over the process env, so OCC_OPUS / OCC_SONNET / OCC_HAIKU / OCC_SUBAGENT
+# (code or tag, env or occ.conf) route a tier to a different model. Unset or
+# empty = that tier stays on the launched model.
+
+typeset -a _occ_tier_args
+_occ_tiers() {
+  local var key val
+  local -a pairs
+  for var key in OCC_OPUS ANTHROPIC_DEFAULT_OPUS_MODEL OCC_SONNET ANTHROPIC_DEFAULT_SONNET_MODEL \
+                 OCC_HAIKU ANTHROPIC_DEFAULT_HAIKU_MODEL OCC_SUBAGENT CLAUDE_CODE_SUBAGENT_MODEL; do
+    val="${(P)var:-}"
+    [[ -n "$val" ]] || continue
+    (( $+_occ_canon[$val] )) && val="$_occ_tag[$_occ_canon[$val]]"
+    pairs+=("\"$key\":\"${val//\"/}\"")
+  done
+  (( ${#pairs} )) && _occ_tier_args=(--settings "{\"env\":{${(j:,:)pairs}}}")
+  return 0
 }
 
 # ----------------------------------------------------------------- dispatch --
@@ -286,6 +311,7 @@ case "${OCC_OTEL:-}" in
     [[ -n "${OCC_OTEL_ENDPOINT:-}" && -z "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]] \
       && export OTEL_EXPORTER_OTLP_ENDPOINT="$OCC_OTEL_ENDPOINT" ;;
 esac
+_occ_tiers
 if (( $# == 0 )); then
   model="$(_occ_default)"                                  # bare occ
 else
@@ -313,12 +339,12 @@ else
       local tasks="$*"
       local msg="You are the route-and-staff orchestrator (rules: appended prompt $staff_prompt). Launch the workflow now: Workflow({scriptPath: \"$staff_wf\", args: {tasks: <the list below>, quota: \"normal\", execute: false}}). Present me the routing plan and warnings; only after I confirm, re-run with execute:true. Tasks: ${tasks:-<none — ask me for the task list first>}"
       if [[ -n "${OCC_DRY_RUN:-}" ]]; then
-        print -r -- "orch_model=$orch_model tasks=${tasks:-<interactive>}"
+        print -r -- "orch_model=$orch_model tasks=${tasks:-<interactive>}${_occ_tier_args:+ ${(j: :)_occ_tier_args}}"
         exit 0
       fi
       exec env OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=64000 \
         ollama launch claude --model "$orch_model" -- --dangerously-skip-permissions \
-          --append-system-prompt-file "$staff_prompt" "$msg" ;;
+          $_occ_tier_args --append-system-prompt-file "$staff_prompt" "$msg" ;;
     list|audit)
       print -u2 "occ: '$1' is a reserved subcommand — not yet implemented."
       print -u2 "     (local model named '$1'? use its full tag: occ $1:latest)"
@@ -339,9 +365,9 @@ fi
 if [[ -n "${OCC_DRY_RUN:-}" ]]; then
   # note: ${_with_otel:+...} would match "0" too — :+ tests non-EMPTY, not truth
   if (( _with_otel )); then
-    print -r -- "model=$model args=${(j: :)@} otel=1"
+    print -r -- "model=$model args=${(j: :)@} otel=1${_occ_tier_args:+ ${(j: :)_occ_tier_args}}"
   else
-    print -r -- "model=$model args=${(j: :)@}"
+    print -r -- "model=$model args=${(j: :)@}${_occ_tier_args:+ ${(j: :)_occ_tier_args}}"
   fi
   exit 0
 fi
@@ -350,10 +376,10 @@ if (( _with_otel )); then
   local _occ_t0 _occ_rc
   _occ_t0="$(date +%s)"
   env OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=64000 \
-    ollama launch claude --model "$model" -- --dangerously-skip-permissions "$@"
+    ollama launch claude --model "$model" -- --dangerously-skip-permissions $_occ_tier_args "$@"
   _occ_rc=$?
   _occ_emit_span "$model" "$_occ_t0" "$_occ_rc"
   exit $_occ_rc
 fi
 exec env OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=64000 \
-  ollama launch claude --model "$model" -- --dangerously-skip-permissions "$@"
+  ollama launch claude --model "$model" -- --dangerously-skip-permissions $_occ_tier_args "$@"

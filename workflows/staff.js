@@ -49,7 +49,7 @@ const routed = (await parallel(tasks.map((t, i) => () =>
      nano, routine -> ds; hard-block pro/ultra/kimi (flag in warnings[]).
    - TYPE -> frontend non-design-critical: glm; agentic IDE loops: code;
      routine fast: ds; bulk data near 1M ctx: data; marathon debug/plan:
-     ultra; single hard backend bug: q397; single-shot max math ONLY: pro
+     ultra; single hard backend bug: muse; single-shot max math ONLY: pro
      (add hallucination warning). uncertain -> glm. NEVER default premium.
 4. Write the self-contained brief.
 
