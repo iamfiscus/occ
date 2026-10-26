@@ -35,7 +35,7 @@ _occ_tsv() {
   fi
 }
 
-typeset -A _occ_tag _occ_tier _occ_billing _occ_vision _occ_agentic _occ_ctx \
+typeset -A _occ_bytag _occ_tag _occ_tier _occ_billing _occ_vision _occ_agentic _occ_ctx \
            _occ_flags _occ_use _occ_avoid _occ_canon
 typeset -a _occ_codes
 
@@ -45,7 +45,7 @@ _occ_load() {
   local code aliases tag tier billing vision agentic ctx flags use avoid a
   while IFS=$'\t' read -r code aliases tag tier billing vision agentic ctx flags use avoid; do
     _occ_codes+=("$code")
-    _occ_tag[$code]=$tag;       _occ_tier[$code]=$tier
+    _occ_tag[$code]=$tag;       _occ_tier[$code]=$tier;   _occ_bytag[$tag]=$code
     _occ_billing[$code]=$billing; _occ_vision[$code]=$vision
     _occ_agentic[$code]=$agentic; _occ_ctx[$code]=$ctx
     _occ_flags[$code]=$flags;   _occ_use[$code]=$use
@@ -296,6 +296,36 @@ _occ_tiers() {
   return 0
 }
 
+# ---------------------------------------------------------- context window --
+# claude assumes 200K for a model id it doesn't know. ollama launch sets
+# CLAUDE_CODE_MAX_CONTEXT_TOKENS only for models it knows, so occ sets it from
+# the TSV ctx column (K/M as 1000s, rounding down is the safe side). Locals
+# are capped at what occ serves them with (OLLAMA_CONTEXT_LENGTH).
+# An explicitly-set CLAUDE_CODE_MAX_CONTEXT_TOKENS wins.
+
+_occ_local_ctx=64000
+_occ_ctx_tokens() {  # $1=tag -> token count, or nothing for unknown tags
+  local code="${_occ_bytag[$1]:-}" ctx n
+  [[ -n "$code" ]] || return 0
+  ctx="$_occ_ctx[$code]"
+  case "$ctx" in
+    <->M) n=$(( ${ctx%M} * 1000000 )) ;;
+    <->K) n=$(( ${ctx%K} * 1000 )) ;;
+    *)    return 0 ;;
+  esac
+  [[ "$_occ_tier[$code]" == local ]] && (( n > _occ_local_ctx )) && n=$_occ_local_ctx
+  print -r -- $n
+}
+
+_occ_ctx_note=""
+_occ_set_ctx() {  # $1=tag
+  (( ${+CLAUDE_CODE_MAX_CONTEXT_TOKENS} )) && return 0
+  local n; n="$(_occ_ctx_tokens "$1")"
+  [[ -n "$n" ]] || return 0
+  export CLAUDE_CODE_MAX_CONTEXT_TOKENS=$n
+  _occ_ctx_note=" ctx=$n"
+}
+
 # ----------------------------------------------------------------- dispatch --
 _occ_load || exit 1
 
@@ -338,11 +368,12 @@ else
         || { print -u2 "occ: orch needs $staff_prompt and $staff_wf"; exit 1 }
       local tasks="$*"
       local msg="You are the route-and-staff orchestrator (rules: appended prompt $staff_prompt). Launch the workflow now: Workflow({scriptPath: \"$staff_wf\", args: {tasks: <the list below>, quota: \"normal\", execute: false}}). Present me the routing plan and warnings; only after I confirm, re-run with execute:true. Tasks: ${tasks:-<none — ask me for the task list first>}"
+      _occ_set_ctx "$orch_model"
       if [[ -n "${OCC_DRY_RUN:-}" ]]; then
-        print -r -- "orch_model=$orch_model tasks=${tasks:-<interactive>}${_occ_tier_args:+ ${(j: :)_occ_tier_args}}"
+        print -r -- "orch_model=$orch_model$_occ_ctx_note tasks=${tasks:-<interactive>}${_occ_tier_args:+ ${(j: :)_occ_tier_args}}"
         exit 0
       fi
-      exec env OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=64000 \
+      exec env OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=$_occ_local_ctx \
         ollama launch claude --model "$orch_model" -- --dangerously-skip-permissions \
           $_occ_tier_args --append-system-prompt-file "$staff_prompt" "$msg" ;;
     list|audit)
@@ -361,13 +392,14 @@ else
   esac
 fi
 [[ "${1:-}" == "--" ]] && shift   # normalize 'occ ds -- -p hi' == 'occ ds -p hi'
+_occ_set_ctx "$model"
 
 if [[ -n "${OCC_DRY_RUN:-}" ]]; then
   # note: ${_with_otel:+...} would match "0" too — :+ tests non-EMPTY, not truth
   if (( _with_otel )); then
-    print -r -- "model=$model args=${(j: :)@} otel=1${_occ_tier_args:+ ${(j: :)_occ_tier_args}}"
+    print -r -- "model=$model$_occ_ctx_note args=${(j: :)@} otel=1${_occ_tier_args:+ ${(j: :)_occ_tier_args}}"
   else
-    print -r -- "model=$model args=${(j: :)@}${_occ_tier_args:+ ${(j: :)_occ_tier_args}}"
+    print -r -- "model=$model$_occ_ctx_note args=${(j: :)@}${_occ_tier_args:+ ${(j: :)_occ_tier_args}}"
   fi
   exit 0
 fi
@@ -375,11 +407,11 @@ if (( _with_otel )); then
   # no exec: stay alive to emit the span with real duration + exit code
   local _occ_t0 _occ_rc
   _occ_t0="$(date +%s)"
-  env OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=64000 \
+  env OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=$_occ_local_ctx \
     ollama launch claude --model "$model" -- --dangerously-skip-permissions $_occ_tier_args "$@"
   _occ_rc=$?
   _occ_emit_span "$model" "$_occ_t0" "$_occ_rc"
   exit $_occ_rc
 fi
-exec env OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=64000 \
+exec env OLLAMA_KEEP_ALIVE=-1 OLLAMA_CONTEXT_LENGTH=$_occ_local_ctx \
   ollama launch claude --model "$model" -- --dangerously-skip-permissions $_occ_tier_args "$@"

@@ -18,8 +18,6 @@ pro	-	deepseek-v4-pro:cloud	cloud	flat	no	low	1M	premium	max-effort single-shot 
 ultra	-	nemotron-3-ultra:cloud	cloud	flat	no	high	256K	premium	marathon debugging/planning agents; most factual	first-party NVIDIA claims only
 mm3	content,mm	minimax-m3.1-flash:cloud	cloud	flat	yes	high	976K	-	fast agentic subagents; multimodal content; long docs	-
 nano	-	nemotron-3-nano:30b-cloud	cloud	flat	no	low	1M	-	cheapest quota tier plus 1M ctx; mechanical volume work	-
+g4	-	gemma4:cloud	cloud	flat	yes	medium	256K	-	fast multimodal; native tools; audio	-
 l	local	glm-4.7-flash	local	free	no	medium	64K	-	local workhorse; privacy/offline/throwaway	-
-g4	-	gemma4:latest	local	free	yes	medium	128K	-	fast multimodal; native tools	-
-g4c	-	gemma4:12b	local	free	no	medium	256K	pull-first	best local coding under 30B (LCB v6 72.0)	-
-q35	-	qwen3.5:9b-mlx	local	free	no	medium	128K	pull-first	best sub-10B local coding	-
-q36	-	qwen3.6:35b-mlx	local	free	no	high	256K	pull-first	big local coding (SWE-bench 73.4); daily max on 48GB	-
+q38	-	qwen3.8:27b-mlx	local	free	yes	medium	256K	-	big local coding; private screenshots/OCR; 18GB, fits 32GB	-

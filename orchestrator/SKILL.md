@@ -3,8 +3,8 @@ name: occ-route
 description: Route a task to the right occ model code before the user launches a
   new Claude Code-via-ollama session. Use when the user asks "which model should I
   use", "route this task", describes work they're about to start in a fresh occ
-  session, mentions occ codes (glm, kimi, ds, ultra, muse, nano, l, g4c, q35,
-  q36...), or wants to escalate off a failing model. Decision table of record:
+  session, mentions occ codes (glm, kimi, ds, ultra, muse, nano, l, q38,
+  g4...), or wants to escalate off a failing model. Decision table of record:
   share/occ/models.tsv (render with `occ --emit md` — never hardcode the map).
 ---
 
@@ -32,9 +32,9 @@ memory — the map rotates quarterly.
 
 Local only. Run `ollama ls` to see what's installed.
 
-- coding → first installed of: g4c > q35 > q36 (q36 only if it will be the one
-  18GB+ local loaded; 48GB machine)
-- image/multimodal → g4
+- coding → first installed of: l > q38 (q38 only if it will be the one
+  18GB+ local loaded)
+- image/multimodal → q38
 - quick/throwaway → l
 - needed local absent → print "requires: ollama pull <tag>" plus best
   ALREADY-INSTALLED fallback. Never auto-pull, never <4B, never fp16/bf16.

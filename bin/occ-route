@@ -3,7 +3,7 @@
 # Prints a suggested `occ <code> ...` invocation. NEVER executes it.
 #
 # Fast path: deterministic gates (privacy/offline, low-quota, vision-file) —
-# no LLM call. Slow path: LOCAL classifier (gemma4:latest via ollama run) so
+# no LLM call. Slow path: LOCAL classifier (first installed of l, q38 via ollama run) so
 # private task descriptions never leave the machine and routing works offline.
 # Model map: share/occ/models.tsv (same file bin/occ reads).
 
@@ -85,18 +85,18 @@ if [[ "$task" == *[Pp]rivate* || "$task" == *[Cc]onfidential* || "$task" == *[Cc
   local pick
   if [[ "$task" == *[Ss]creenshot* || "$task" == *[Mm]ock* || "$task" == *[Ii]mage* \
         || "$task" == *[Dd]iagram* ]]; then
-    pick="$(_pick_local g4)"
+    pick="$(_pick_local q38)"
   elif [[ "$task" == *[Rr]efactor* || "$task" == *[Aa]rchitect* || "$task" == *[Dd]ebug* \
           || "$task" == *multi-file* ]]; then
-    pick="$(_pick_local q36 g4c q35 l)"
+    pick="$(_pick_local q38 l)"
   else
-    pick="$(_pick_local g4c q35 l)"
+    pick="$(_pick_local l q38)"
   fi
   if [[ -n "$pick" ]]; then
     _emit "$pick" "privacy/offline gate — local only"
   else
     print "private/offline task needs a local model, none of the coded locals are pulled."
-    print "  requires: ollama pull qwen3.6:35b-mlx   (or gemma4:12b / qwen3.5:9b-mlx for lighter)"
+    print "  requires: ollama pull qwen3.8:27b-mlx   (or glm-4.7-flash for lighter)"
   fi
   exit 0
 fi
@@ -128,14 +128,15 @@ for w in ${(z)task}; do
 done
 
 # --- slow path: local classifier -------------------------------------------
-if ! _have g4; then
-  print "suggested  : occ glm (classifier model gemma4:latest not installed;"
-  print "             ollama pull gemma4, or pick from 'occ help')"
+local clf; clf="$(_pick_local l q38)"
+if [[ -z "$clf" ]]; then
+  print "suggested  : occ glm (no local classifier installed;"
+  print "             ollama pull glm-4.7-flash, or pick from 'occ help')"
   exit 0
 fi
 
 local codes; codes="$(awk -F'\t' '!/^#/ && NF==11 {printf "%s (%s); ", $1, $10}' "$TSV")"
-local out; out="$(ollama run gemma4:latest \
+local out; out="$(ollama run "$(_tag "$clf")" \
   "You are a model router for the 'occ' launcher. Available codes: $codes
 Task: $task
 Rules: default coding/architecture -> glm. design-critical frontend -> kimi (metered).
