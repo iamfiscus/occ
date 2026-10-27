@@ -39,8 +39,8 @@ const routed = (await parallel(tasks.map((t, i) => () =>
    installed locals when a local pick is in play.
 3. Route by gates IN ORDER — first that fires wins:
    - PRIVACY/OFFLINE (confidential, client, NDA, offline...) -> first
-     installed of: g4c > q35 (q36 only if explicitly complex AND it would be
-     the single 18GB+ local); image -> g4; quick -> l. Never auto-pull,
+     installed of: l (q38 only if explicitly complex AND it would be
+     the single 18GB+ local); image -> q38; quick -> l. Never auto-pull,
      never <4B, never fp16.
    - VISION (screenshot/mock/OCR/image-file) -> design-critical: kimi ONLY
      with a metering warning added to warnings[]; else vis. Long multimodal
@@ -49,7 +49,7 @@ const routed = (await parallel(tasks.map((t, i) => () =>
      nano, routine -> ds; hard-block pro/ultra/kimi (flag in warnings[]).
    - TYPE -> frontend non-design-critical: glm; agentic IDE loops: code;
      routine fast: ds; bulk data near 1M ctx: data; marathon debug/plan:
-     ultra; single hard backend bug: q397; single-shot max math ONLY: pro
+     ultra; single hard backend bug: muse; single-shot max math ONLY: pro
      (add hallucination warning). uncertain -> glm. NEVER default premium.
 4. Write the self-contained brief.
 

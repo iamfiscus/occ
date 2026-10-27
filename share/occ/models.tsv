@@ -1,5 +1,5 @@
 # schema: 1
-# audited: 2026-08-04 — re-audit quarterly (docs/auditing.md); occ-route warns when >90 days stale
+# audited: 2026-10-26 — re-audit quarterly (docs/auditing.md); occ-route warns when >90 days stale
 # occ model map — single source of truth for resolution, help, completion, --emit, and the router.
 # fields (tab-separated): code | aliases | tag | tier | billing | vision | agentic | ctx | flags | use_for | avoid
 #   aliases: comma-CSV, '-' if none      tier: cloud|local         billing: flat|metered|free
@@ -7,19 +7,17 @@
 #   flags: comma set of default,pinned,unpinned,pull-first,premium ; '-' if none
 # hard rules: no tabs or newlines inside any field. enforce with `occ --check`.
 # quarterly audit: edit rows here ONLY. bin/occ changes only on a schema bump.
-glm	-	glm-5.2:cloud	cloud	flat	no	high	976K	default	best raw coding; architecture and planning	-
+glm	-	glm-5.3:cloud	cloud	flat	no	high	1M	default	best raw coding; long-horizon agentic; architecture and planning	-
+gf	vis,flash	glm-5.3-flash:cloud	cloud	flat	yes	high	1M	-	fast near-flagship coding; screenshots/OCR; multimodal	-
 kimi	ui	kimi-k3:cloud	cloud	metered	yes	high	1M	-	#1 frontend; design-to-code; multimodal flagship	metered $3/$15 per 1M tokens; outside flat subscription
-ds	deepseek	deepseek-v4-flash:0731-cloud	cloud	flat	no	medium	1M	pinned	fast/cheap routine agents; long docs	-
-data	-	deepseek-v4-flash:cloud	cloud	flat	no	medium	1M	unpinned	bulk dumps and CSV/log analysis near 1M ctx	-
+muse	-	muse-spark-open:cloud	cloud	flat	yes	high	1M	-	long-horizon software engineering; multi-step reasoning; multimodal	-
+ds	deepseek	deepseek-v4.1-flash:1017-cloud	cloud	flat	yes	medium	1M	pinned	fast/cheap routine agents; long docs	-
+data	-	deepseek-v4.1-flash:cloud	cloud	flat	yes	medium	1M	unpinned	bulk dumps and CSV/log analysis near 1M ctx	-
 code	-	kimi-k2.7-code:cloud	cloud	flat	no	high	256K	-	agentic IDE loops; ~30% fewer think tokens	-
 pro	-	deepseek-v4-pro:cloud	cloud	flat	no	low	1M	premium	max-effort single-shot math and reasoning ONLY	worst hallucination profile (OmniScience 5.7); use ultra for agents
 ultra	-	nemotron-3-ultra:cloud	cloud	flat	no	high	256K	premium	marathon debugging/planning agents; most factual	first-party NVIDIA claims only
-q397	-	qwen3.5:397b-cloud	cloud	flat	no	medium	256K	premium	hard backend bugs; best SWE-bench Verified 76.2	-
-qwen	vis	qwen3.5:cloud	cloud	flat	yes	medium	256K	-	best screenshot/OCR per dollar; multimodal image tools	-
-mm3	content	minimax-m3:cloud	cloud	flat	yes	medium	512K	-	multimodal content; long docs	-
+mm3	content,mm	minimax-m3.1-flash:cloud	cloud	flat	yes	high	976K	-	fast agentic subagents; multimodal content; long docs	-
 nano	-	nemotron-3-nano:30b-cloud	cloud	flat	no	low	1M	-	cheapest quota tier plus 1M ctx; mechanical volume work	-
+g4	-	gemma4:cloud	cloud	flat	yes	medium	256K	-	fast multimodal; native tools; audio	-
 l	local	glm-4.7-flash	local	free	no	medium	64K	-	local workhorse; privacy/offline/throwaway	-
-g4	-	gemma4:latest	local	free	yes	medium	128K	-	fast multimodal; native tools	-
-g4c	-	gemma4:12b	local	free	no	medium	256K	pull-first	best local coding under 30B (LCB v6 72.0)	-
-q35	-	qwen3.5:9b-mlx	local	free	no	medium	128K	pull-first	best sub-10B local coding	-
-q36	-	qwen3.6:35b-mlx	local	free	no	high	256K	pull-first	big local coding (SWE-bench 73.4); daily max on 48GB	-
+q38	-	qwen3.8:27b-mlx	local	free	yes	medium	256K	-	big local coding; private screenshots/OCR; 18GB, fits 32GB	-

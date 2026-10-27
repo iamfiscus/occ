@@ -13,6 +13,14 @@
 # --- default model (same as OCC_MODEL env) ---
 # OCC_MODEL=nano
 
+# --- tier mixing (code or tag; unset = tier stays on the launched model) ---
+# ollama launch pins every claude tier to the launched model; these route a
+# tier elsewhere via claude --settings env.
+# OCC_OPUS=glm          # opus tier: planning / hardest turns
+# OCC_SONNET=gf         # sonnet tier
+# OCC_HAIKU=ds          # haiku tier: titles, summaries, background calls
+# OCC_SUBAGENT=mm3      # Agent-tool subagents
+
 # --- orchestrator session model (same as OCC_ORCH_MODEL env) ---
 # OCC_ORCH_MODEL=ultra
 
